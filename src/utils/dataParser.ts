@@ -40,10 +40,10 @@ export function splitTeachers(input: string): string[] {
 
 /**
  * Parse an individual teacher string:
- * e.g., "Maria Teresa González (ESTD, CEST, MEA) -- Jubilado"
- * -> name: "Maria Teresa González"
- * -> subjects: "ESTD, CEST, MEA"
- * -> badge: "Jubilado"
+ * e.g., "Juan Jesús Antonio Getino (AMAT 3) -- Jubilado (no está claro que pueda estar)"
+ * -> name: "Juan Jesús Antonio Getino"
+ * -> subjects: "AMAT 3"
+ * -> badge: "Jubilado/a (Aviso)"
  */
 export function parseTeacherInfo(rawTeacher: string): {
   name: string;
@@ -55,24 +55,37 @@ export function parseTeacherInfo(rawTeacher: string): {
   let badge: string | undefined;
 
   // Detect special notes
-  if (/--\s*jubilad[oa]/i.test(cleaned) || /\bjubilad[oa]\b/i.test(cleaned)) {
+  if (/jubilad[oa]/i.test(cleaned)) {
     badge = 'Jubilado/a';
-    cleaned = cleaned.replace(/--\s*jubilad[oa]/gi, '').replace(/\bjubilad[oa]\b/gi, '').trim();
+    cleaned = cleaned.replace(/--\s*jubilad[oa][^()]*(?:\([^)]*\))?/gi, '')
+                     .replace(/\bjubilad[oa][^()]*(?:\([^)]*\))?/gi, '')
+                     .trim();
   } else if (/cambio de adscripci[oó]n/i.test(cleaned)) {
     badge = 'Cambio de Adscripción';
-    cleaned = cleaned.replace(/--\s*cambio de adscripci[oó]n/gi, '').replace(/cambio de adscripci[oó]n/gi, '').trim();
+    cleaned = cleaned.replace(/--\s*cambio de adscripci[oó]n[^()]*/gi, '')
+                     .replace(/\bcambio de adscripci[oó]n[^()]*/gi, '')
+                     .trim();
   }
 
-  // Extract subjects between parentheses
+  // Extract subjects/extra note between parentheses (last paren is usually subjects, or handle nick names like (Nacho))
   let subjects = '';
-  const parenMatch = cleaned.match(/\(([^)]+)\)/);
-  if (parenMatch) {
-    subjects = parenMatch[1].trim();
-    cleaned = cleaned.replace(/\([^)]+\)/, '').trim();
+  // Match parenthetical expressions
+  const parenMatches = [...cleaned.matchAll(/\(([^)]+)\)/g)];
+  if (parenMatches.length > 0) {
+    // If multiple parentheses, e.g. "Manuel de Castro (Bolu) (AOC)" or "Luis Ignacio (Nacho) Jiménez (FIA)"
+    // Check if any parenthesis looks like subjects (all caps, or codes like AOC, AMAT 2, ESTD, etc.)
+    const subjectMatch = parenMatches.find(m => {
+      const content = m[1].trim();
+      return /^[A-Z0-9\s,eóáíúy\.\-]+$/.test(content) && content.length > 1 && content !== 'Nacho' && content !== 'Bolu';
+    }) || parenMatches[parenMatches.length - 1];
+
+    subjects = subjectMatch[1].trim();
+    // Remove the subject parenthesis from name
+    cleaned = cleaned.replace(subjectMatch[0], '').trim();
   }
 
-  // Clean remaining punctuation or extra spaces
-  cleaned = cleaned.replace(/\s+/g, ' ').replace(/-+$/, '').trim();
+  // Clean trailing dashes or remaining punctuation and spaces
+  cleaned = cleaned.replace(/\s+/g, ' ').replace(/^[-–—\s]+|[-–—\s]+$/g, '').trim();
 
   return {
     name: cleaned || rawTeacher.trim(),
@@ -97,12 +110,6 @@ export function processVotesData(rows: string[][]): DashboardStats {
     };
   }
 
-  // Row 0 is header. Verify column indexes:
-  // Usually:
-  // Col 0: Marca temporal / Timestamp
-  // Col 1: Nombre y Apellidos / Alumno
-  // Col 2 (C): Profesores de Estadística
-  // Col 3 (D): Profesores de Informática
   const header = rows[0].map(h => (h || '').toLowerCase().trim());
   
   let colTimestamp = 0;
@@ -132,7 +139,7 @@ export function processVotesData(rows: string[][]): DashboardStats {
   for (let i = 1; i < rows.length; i++) {
     const row = rows[i];
     if (!row || row.length === 0 || row.every(cell => !cell || !cell.trim())) {
-      continue; // empty line
+      continue;
     }
 
     const timestamp = row[colTimestamp] ? row[colTimestamp].trim() : '';

@@ -2,75 +2,60 @@ import React, { useState, useEffect, useCallback } from 'react';
 import Papa from 'papaparse';
 import {
   GraduationCap,
-  Settings2,
-  Database,
   BarChart2,
   Users,
   AlertCircle,
   ExternalLink,
-  HelpCircle,
-  Sparkles,
+  CheckCircle2,
 } from 'lucide-react';
 import type { DashboardStats } from './types';
 import { processVotesData } from './utils/dataParser';
-import { buildGoogleSheetUrl, SAMPLE_CSV } from './utils/sheetConfig';
+import { buildGoogleSheetUrl, DEFAULT_SHEET_ID } from './utils/sheetConfig';
 import { MetricCards } from './components/MetricCards';
 import { Podium } from './components/Podium';
 import { DepartmentChart } from './components/DepartmentChart';
 import { DepartmentTable } from './components/DepartmentTable';
 import { VotersAudit } from './components/VotersAudit';
 
+const INITIAL_STATS: DashboardStats = {
+  totalStudents: 0,
+  totalVotesCast: 0,
+  lastVoteTimestamp: 'Cargando...',
+  estadisticaRanking: [],
+  informaticaRanking: [],
+  voters: [],
+};
+
 export const App: React.FC = () => {
-  // Configuration State
-  const [sheetId, setSheetId] = useState<string>(() => {
-    return localStorage.getItem('orla_sheet_id') || '';
-  });
-  const [sheetTabName, setSheetTabName] = useState<string>('Respuestas de formulario 1');
-  const [useSampleData, setUseSampleData] = useState<boolean>(!sheetId);
   const [topCutoff, setTopCutoff] = useState<number>(3);
   const [activeTab, setActiveTab] = useState<'rankings' | 'voters'>('rankings');
   const [departmentView, setDepartmentView] = useState<'both' | 'estadistica' | 'informatica'>('both');
-  const [isConfigOpen, setIsConfigOpen] = useState<boolean>(false);
 
   // Data & Fetch State
-  const [loading, setLoading] = useState<boolean>(false);
+  const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
-  const [stats, setStats] = useState<DashboardStats>(() => {
-    // Initial parse with sample data if no sheet configured
-    const parsed = Papa.parse<string[]>(SAMPLE_CSV, { skipEmptyLines: true });
-    return processVotesData(parsed.data);
-  });
+  const [stats, setStats] = useState<DashboardStats>(INITIAL_STATS);
 
-  const fetchData = useCallback(async (targetSheetId: string, isSample: boolean = false) => {
+  const fetchData = useCallback(async () => {
     setLoading(true);
     setError(null);
 
     try {
-      if (isSample || !targetSheetId.trim()) {
-        const parsed = Papa.parse<string[]>(SAMPLE_CSV, { skipEmptyLines: true });
-        const processed = processVotesData(parsed.data);
-        setStats(processed);
-        setLastUpdated(new Date());
-        setLoading(false);
-        return;
-      }
-
-      const csvUrl = buildGoogleSheetUrl(targetSheetId, sheetTabName);
+      const csvUrl = buildGoogleSheetUrl();
       const response = await fetch(csvUrl);
 
       if (!response.ok) {
         throw new Error(
-          `No se pudo obtener la hoja (HTTP ${response.status}). Asegúrate de que la hoja de cálculo de Google tenga permisos de lectura ("Cualquiera con el enlace puede ver") o esté publicada en la web.`
+          `No se pudo obtener la hoja de cálculo (HTTP ${response.status}). Asegúrate de tener conexión a Internet.`
         );
       }
 
       const csvText = await response.text();
 
-      // Check if Google returned an HTML login page instead of CSV
       if (csvText.includes('<!DOCTYPE html>') || csvText.includes('<html')) {
         throw new Error(
-          'La hoja de cálculo requiere inicio de sesión. Por favor, abre el botón "Compartir" de Google Sheets y selecciona "Cualquiera con el enlace: Lector".'
+          'La hoja de cálculo requiere autorización de Google. Verifica que el enlace esté compartido con "Cualquier persona con el enlace: Lector".'
         );
       }
 
@@ -87,7 +72,7 @@ export const App: React.FC = () => {
           setLoading(false);
         },
         error: (err: Error) => {
-          setError(`Error al parsear el CSV: ${err.message}`);
+          setError(`Error al parsear las respuestas: ${err.message}`);
           setLoading(false);
         },
       });
@@ -96,33 +81,11 @@ export const App: React.FC = () => {
       setError(msg);
       setLoading(false);
     }
-  }, [sheetTabName]);
-
-  // Handle Sheet ID save
-  const handleSaveSheetId = (newId: string) => {
-    const trimmed = newId.trim();
-    // If user pasted a full URL, extract the ID
-    const match = trimmed.match(/\/d\/([a-zA-Z0-9-_]+)/);
-    const finalId = match ? match[1] : trimmed;
-
-    setSheetId(finalId);
-    localStorage.setItem('orla_sheet_id', finalId);
-
-    if (finalId) {
-      setUseSampleData(false);
-      fetchData(finalId, false);
-    } else {
-      setUseSampleData(true);
-      fetchData('', true);
-    }
-    setIsConfigOpen(false);
-  };
+  }, []);
 
   useEffect(() => {
-    if (sheetId) {
-      fetchData(sheetId, false);
-    }
-  }, [fetchData, sheetId]);
+    fetchData();
+  }, [fetchData]);
 
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-100 flex flex-col font-sans">
@@ -143,97 +106,24 @@ export const App: React.FC = () => {
             </div>
           </div>
 
-          {/* Quick actions in header */}
-          <div className="flex items-center gap-2">
-            {useSampleData && (
-              <span className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-amber-100 text-amber-800 dark:bg-amber-950/80 dark:text-amber-300">
-                <Sparkles className="w-3.5 h-3.5" /> Modo Demostración
-              </span>
-            )}
-            <button
-              onClick={() => setIsConfigOpen(!isConfigOpen)}
+          <div className="flex items-center gap-3">
+            <div className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800 dark:bg-emerald-950/80 dark:text-emerald-300">
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+              Sincronizado en tiempo real
+            </div>
+            <a
+              href={`https://docs.google.com/spreadsheets/d/${DEFAULT_SHEET_ID}/edit?gid=1484206016`}
+              target="_blank"
+              rel="noreferrer"
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-100 dark:bg-slate-750 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 transition"
-              title="Configurar conexión con Google Sheets"
+              title="Abrir hoja de Google Forms"
             >
-              <Settings2 className="w-4 h-4" />
-              <span className="hidden md:inline">Fuente de datos</span>
-            </button>
+              <ExternalLink className="w-4 h-4 text-slate-500" />
+              <span className="hidden md:inline">Ver Hoja de Google</span>
+            </a>
           </div>
         </div>
       </header>
-
-      {/* Sheet Configuration Modal/Drawer */}
-      {isConfigOpen && (
-        <div className="bg-indigo-900/10 border-b border-indigo-200 dark:border-indigo-900/50 p-4 lg:p-6 transition-all">
-          <div className="max-w-4xl mx-auto bg-white dark:bg-slate-800 rounded-2xl p-6 border border-slate-200 dark:border-slate-700 shadow-xl space-y-4">
-            <div className="flex items-center justify-between">
-              <h3 className="font-bold text-slate-900 dark:text-white text-base flex items-center gap-2">
-                <Database className="w-5 h-5 text-indigo-600" />
-                Configurar Google Sheet
-              </h3>
-              <button
-                onClick={() => setIsConfigOpen(false)}
-                className="text-slate-400 hover:text-slate-600 text-sm font-bold"
-              >
-                ✕ Cerrar
-              </button>
-            </div>
-
-            <p className="text-xs text-slate-600 dark:text-slate-400">
-              Pega el ID o la URL completa de tu hoja de cálculo vinculada al Google Form.
-              La hoja debe tener permiso de lectura para <em>"Cualquier persona con el enlace"</em>.
-            </p>
-
-            <div className="space-y-3">
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  ID o URL de la Hoja de Google:
-                </label>
-                <input
-                  type="text"
-                  placeholder="Ej: 1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms o https://docs.google.com/spreadsheets/d/..."
-                  defaultValue={sheetId}
-                  id="sheetIdInput"
-                  className="w-full px-3.5 py-2 text-sm rounded-lg border border-slate-300 dark:border-slate-600 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono text-xs"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  Nombre de la pestaña (Sheet name):
-                </label>
-                <input
-                  type="text"
-                  value={sheetTabName}
-                  onChange={e => setSheetTabName(e.target.value)}
-                  className="w-full px-3.5 py-2 text-sm rounded-lg border border-slate-300 dark:border-slate-600 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                />
-              </div>
-
-              <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
-                <button
-                  onClick={() => {
-                    handleSaveSheetId('');
-                  }}
-                  className="text-xs text-slate-500 hover:text-indigo-600 underline"
-                >
-                  Restaurar datos de prueba (Demo)
-                </button>
-
-                <button
-                  onClick={() => {
-                    const input = document.getElementById('sheetIdInput') as HTMLInputElement;
-                    if (input) handleSaveSheetId(input.value);
-                  }}
-                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-lg transition"
-                >
-                  Guardar y Sincronizar
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Main Container */}
       <main className="max-w-7xl mx-auto px-4 lg:px-8 py-8 w-full flex-1 space-y-8">
@@ -242,33 +132,9 @@ export const App: React.FC = () => {
           <div className="p-4 rounded-xl bg-red-50 dark:bg-red-950/60 border border-red-200 dark:border-red-800 text-red-800 dark:text-red-300 flex items-start gap-3">
             <AlertCircle className="w-5 h-5 shrink-0 text-red-600 mt-0.5" />
             <div className="text-xs space-y-1">
-              <p className="font-bold text-sm">Error de sincronización con Google Sheets</p>
+              <p className="font-bold text-sm">Error de conexión con las respuestas</p>
               <p>{error}</p>
-              <p className="text-red-600 dark:text-red-400 font-medium pt-1">
-                Tip: Verifica que en Google Sheets hayas pulsado <strong>Compartir &gt; Cualquier persona con el enlace &gt; Lector</strong>.
-              </p>
             </div>
-          </div>
-        )}
-
-        {/* Demo Mode Banner (if sample data is used) */}
-        {useSampleData && (
-          <div className="p-4 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/60 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs">
-            <div className="flex items-center gap-2.5 text-amber-900 dark:text-amber-200">
-              <HelpCircle className="w-5 h-5 text-amber-600 shrink-0" />
-              <div>
-                <p className="font-bold">Visualizando datos de prueba (Simulación de votos)</p>
-                <p className="text-amber-700 dark:text-amber-400">
-                  Para conectar tus respuestas reales de Google Forms, introduce el ID de tu hoja.
-                </p>
-              </div>
-            </div>
-            <button
-              onClick={() => setIsConfigOpen(true)}
-              className="px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white font-semibold transition shrink-0"
-            >
-              Conectar mi Google Sheet
-            </button>
           </div>
         )}
 
@@ -278,7 +144,7 @@ export const App: React.FC = () => {
           totalVotesCast={stats.totalVotesCast}
           lastVote={stats.lastVoteTimestamp}
           loading={loading}
-          onRefresh={() => fetchData(sheetId, useSampleData)}
+          onRefresh={fetchData}
           lastUpdated={lastUpdated}
         />
 
@@ -382,7 +248,7 @@ export const App: React.FC = () => {
                     </h2>
                   </div>
                   <span className="text-xs font-medium text-slate-500">
-                    {stats.estadisticaRanking.length} profesores votados
+                    {stats.estadisticaRanking.length} profesores con votos
                   </span>
                 </div>
 
@@ -420,7 +286,7 @@ export const App: React.FC = () => {
                     </h2>
                   </div>
                   <span className="text-xs font-medium text-slate-500">
-                    {stats.informaticaRanking.length} profesores votados
+                    {stats.informaticaRanking.length} profesores con votos
                   </span>
                 </div>
 
@@ -460,21 +326,20 @@ export const App: React.FC = () => {
       {/* Footer */}
       <footer className="mt-auto border-t border-slate-200 dark:border-slate-800 py-6 text-center text-xs text-slate-500 dark:text-slate-400 bg-white dark:bg-slate-800/40">
         <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-3">
-          <p>
-            Plataforma de Votación y Escrutinio de Orla Universitaria &bull; Desarrollada con React, Vite &amp; Tailwind CSS
+          <p className="flex items-center gap-1.5 justify-center sm:justify-start">
+            <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+            Conectado directamente a las respuestas del formulario de la orla
           </p>
           <div className="flex items-center gap-4">
-            {sheetId && (
-              <a
-                href={`https://docs.google.com/spreadsheets/d/${sheetId}`}
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex items-center gap-1 text-indigo-600 dark:text-indigo-400 hover:underline"
-              >
-                Abrir Google Sheet en pestaña nueva
-                <ExternalLink className="w-3.5 h-3.5" />
-              </a>
-            )}
+            <a
+              href={`https://docs.google.com/spreadsheets/d/${DEFAULT_SHEET_ID}/edit?gid=1484206016`}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1 text-indigo-600 dark:text-indigo-400 hover:underline"
+            >
+              Abrir Google Sheet
+              <ExternalLink className="w-3.5 h-3.5" />
+            </a>
           </div>
         </div>
       </footer>
