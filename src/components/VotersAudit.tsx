@@ -80,7 +80,7 @@ export const VotersAudit: React.FC<VotersAuditProps> = ({ voters }) => {
             />
           </div>
 
-          <label className="inline-flex items-center gap-2 text-xs font-medium text-slate-700 dark:text-slate-300 cursor-pointer select-none bg-slate-100 dark:bg-slate-750 px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700">
+          <label className="inline-flex items-center gap-2 text-xs font-medium text-slate-700 dark:text-slate-300 cursor-pointer select-none bg-slate-100 dark:bg-slate-700 px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700">
             <input
               type="checkbox"
               checked={filterDuplicatesOnly}
@@ -120,7 +120,7 @@ export const VotersAudit: React.FC<VotersAuditProps> = ({ voters }) => {
                 return (
                   <tr
                     key={voter.id}
-                    className={`transition hover:bg-slate-50 dark:hover:bg-slate-750/50 ${
+                    className={`transition hover:bg-slate-50 dark:hover:bg-slate-700/50 ${
                       isDuplicate
                         ? 'bg-amber-50/40 dark:bg-amber-950/20'
                         : ''

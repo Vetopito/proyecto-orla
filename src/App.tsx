@@ -7,6 +7,7 @@ import {
   AlertCircle,
   ExternalLink,
   CheckCircle2,
+  Award,
 } from 'lucide-react';
 import type { DashboardStats } from './types';
 import { processVotesData } from './utils/dataParser';
@@ -16,6 +17,7 @@ import { Podium } from './components/Podium';
 import { DepartmentChart } from './components/DepartmentChart';
 import { DepartmentTable } from './components/DepartmentTable';
 import { VotersAudit } from './components/VotersAudit';
+import { FinalElectionView } from './components/FinalElectionView';
 
 const INITIAL_STATS: DashboardStats = {
   totalStudents: 0,
@@ -24,11 +26,22 @@ const INITIAL_STATS: DashboardStats = {
   estadisticaRanking: [],
   informaticaRanking: [],
   voters: [],
+  finalElection: {
+    top3Estadistica: [],
+    top3Informatica: [],
+    selectedOverall: [],
+    tiedCandidates: [],
+    notSelectedCandidates: [],
+    allCandidates: [],
+    cutoffVotes: null,
+    totalSelectedCount: 0,
+    hasTieAtCutoff: false,
+  },
 };
 
 export const App: React.FC = () => {
   const [topCutoff, setTopCutoff] = useState<number>(3);
-  const [activeTab, setActiveTab] = useState<'rankings' | 'voters'>('rankings');
+  const [activeTab, setActiveTab] = useState<'final' | 'rankings' | 'voters'>('final');
   const [departmentView, setDepartmentView] = useState<'both' | 'estadistica' | 'informatica'>('both');
 
   // Data & Fetch State
@@ -150,8 +163,22 @@ export const App: React.FC = () => {
 
         {/* Navigation Tabs and Controls */}
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pt-2 border-b border-slate-200 dark:border-slate-800 pb-4">
-          {/* Main Navigation (Rankings vs Voters) */}
-          <div className="flex items-center gap-1 bg-slate-200/70 dark:bg-slate-800 p-1 rounded-xl">
+          {/* Main Navigation (Elección Final vs Rankings vs Voters) */}
+          <div className="flex flex-wrap items-center gap-1 bg-slate-200/70 dark:bg-slate-800 p-1 rounded-xl">
+            <button
+              onClick={() => setActiveTab('final')}
+              className={`flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-lg transition ${
+                activeTab === 'final'
+                  ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-400 shadow-xs'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+              }`}
+            >
+              <Award className="w-4 h-4 text-amber-500" />
+              Elección Final Orla
+              {stats.finalElection.hasTieAtCutoff && (
+                <span className="w-2 h-2 rounded-full bg-amber-500" title="Hay empate en el corte" />
+              )}
+            </button>
             <button
               onClick={() => setActiveTab('rankings')}
               className={`flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-lg transition ${
@@ -161,7 +188,7 @@ export const App: React.FC = () => {
               }`}
             >
               <BarChart2 className="w-4 h-4" />
-              Rankings de Departamentos
+              Rankings Departamentos
             </button>
             <button
               onClick={() => setActiveTab('voters')}
@@ -172,11 +199,11 @@ export const App: React.FC = () => {
               }`}
             >
               <Users className="w-4 h-4" />
-              Auditoría de Votantes ({stats.voters.length})
+              Auditoría Votantes ({stats.voters.length})
             </button>
           </div>
 
-          {/* Controls for Cutoff & Department Filter */}
+          {/* Controls for Cutoff & Department Filter when in rankings */}
           {activeTab === 'rankings' && (
             <div className="flex flex-wrap items-center gap-3">
               {/* Department View filter */}
@@ -216,7 +243,7 @@ export const App: React.FC = () => {
               {/* Top N Cutoff Selector */}
               <div className="flex items-center gap-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 px-3 py-1.5 rounded-xl shadow-xs">
                 <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 whitespace-nowrap">
-                  Corte para la Orla:
+                  Corte:
                 </span>
                 <select
                   value={topCutoff}
@@ -233,6 +260,16 @@ export const App: React.FC = () => {
             </div>
           )}
         </div>
+
+        {/* Tab 0: Elección Final de la Orla (Criterio oficial) */}
+        {activeTab === 'final' && (
+          <section className="space-y-4">
+            <FinalElectionView
+              finalElection={stats.finalElection}
+              totalStudents={stats.totalStudents}
+            />
+          </section>
+        )}
 
         {/* Tab 1: Department Rankings */}
         {activeTab === 'rankings' && (
@@ -252,21 +289,17 @@ export const App: React.FC = () => {
                   </span>
                 </div>
 
-                {/* Podio Top 3 */}
                 <Podium
                   topTeachers={stats.estadisticaRanking}
                   departmentName="Estadística"
                 />
 
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                  {/* Gráfico interactivo */}
                   <DepartmentChart
                     data={stats.estadisticaRanking}
                     topCutoff={topCutoff}
                     colorTheme="indigo"
                   />
-
-                  {/* Tabla detallada */}
                   <DepartmentTable
                     data={stats.estadisticaRanking}
                     topCutoff={topCutoff}
@@ -290,21 +323,17 @@ export const App: React.FC = () => {
                   </span>
                 </div>
 
-                {/* Podio Top 3 */}
                 <Podium
                   topTeachers={stats.informaticaRanking}
                   departmentName="Informática"
                 />
 
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                  {/* Gráfico interactivo */}
                   <DepartmentChart
                     data={stats.informaticaRanking}
                     topCutoff={topCutoff}
                     colorTheme="emerald"
                   />
-
-                  {/* Tabla detallada */}
                   <DepartmentTable
                     data={stats.informaticaRanking}
                     topCutoff={topCutoff}
@@ -328,7 +357,7 @@ export const App: React.FC = () => {
         <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-3">
           <p className="flex items-center gap-1.5 justify-center sm:justify-start">
             <CheckCircle2 className="w-4 h-4 text-emerald-500" />
-            Conectado directamente a las respuestas del formulario de la orla
+            Conectado a las respuestas del formulario de la orla
           </p>
           <div className="flex items-center gap-4">
             <a

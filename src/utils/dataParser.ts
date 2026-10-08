@@ -1,4 +1,10 @@
-import type { DashboardStats, TeacherVote, VoterRecord } from '../types';
+import type {
+  DashboardStats,
+  TeacherVote,
+  VoterRecord,
+  FinalCandidate,
+  FinalElectionResult,
+} from '../types';
 
 /**
  * Splits a comma-separated string of teachers protecting comma inside parentheses.
@@ -43,7 +49,7 @@ export function splitTeachers(input: string): string[] {
  * e.g., "Juan Jesús Antonio Getino (AMAT 3) -- Jubilado (no está claro que pueda estar)"
  * -> name: "Juan Jesús Antonio Getino"
  * -> subjects: "AMAT 3"
- * -> badge: "Jubilado/a (Aviso)"
+ * -> badge: "Jubilado/a"
  */
 export function parseTeacherInfo(rawTeacher: string): {
   name: string;
@@ -57,34 +63,36 @@ export function parseTeacherInfo(rawTeacher: string): {
   // Detect special notes
   if (/jubilad[oa]/i.test(cleaned)) {
     badge = 'Jubilado/a';
-    cleaned = cleaned.replace(/--\s*jubilad[oa][^()]*(?:\([^)]*\))?/gi, '')
-                     .replace(/\bjubilad[oa][^()]*(?:\([^)]*\))?/gi, '')
-                     .trim();
+    cleaned = cleaned
+      .replace(/--\s*jubilad[oa][^()]*(?:\([^)]*\))?/gi, '')
+      .replace(/\bjubilad[oa][^()]*(?:\([^)]*\))?/gi, '')
+      .trim();
   } else if (/cambio de adscripci[oó]n/i.test(cleaned)) {
     badge = 'Cambio de Adscripción';
-    cleaned = cleaned.replace(/--\s*cambio de adscripci[oó]n[^()]*/gi, '')
-                     .replace(/\bcambio de adscripci[oó]n[^()]*/gi, '')
-                     .trim();
+    cleaned = cleaned
+      .replace(/--\s*cambio de adscripci[oó]n[^()]*/gi, '')
+      .replace(/\bcambio de adscripci[oó]n[^()]*/gi, '')
+      .trim();
   }
 
-  // Extract subjects/extra note between parentheses (last paren is usually subjects, or handle nick names like (Nacho))
   let subjects = '';
-  // Match parenthetical expressions
   const parenMatches = [...cleaned.matchAll(/\(([^)]+)\)/g)];
   if (parenMatches.length > 0) {
-    // If multiple parentheses, e.g. "Manuel de Castro (Bolu) (AOC)" or "Luis Ignacio (Nacho) Jiménez (FIA)"
-    // Check if any parenthesis looks like subjects (all caps, or codes like AOC, AMAT 2, ESTD, etc.)
-    const subjectMatch = parenMatches.find(m => {
-      const content = m[1].trim();
-      return /^[A-Z0-9\s,eóáíúy\.\-]+$/.test(content) && content.length > 1 && content !== 'Nacho' && content !== 'Bolu';
-    }) || parenMatches[parenMatches.length - 1];
+    const subjectMatch =
+      parenMatches.find((m) => {
+        const content = m[1].trim();
+        return (
+          /^[A-Z0-9\s,eóáíúy\.\-]+$/.test(content) &&
+          content.length > 1 &&
+          content !== 'Nacho' &&
+          content !== 'Bolu'
+        );
+      }) || parenMatches[parenMatches.length - 1];
 
     subjects = subjectMatch[1].trim();
-    // Remove the subject parenthesis from name
     cleaned = cleaned.replace(subjectMatch[0], '').trim();
   }
 
-  // Clean trailing dashes or remaining punctuation and spaces
   cleaned = cleaned.replace(/\s+/g, ' ').replace(/^[-–—\s]+|[-–—\s]+$/g, '').trim();
 
   return {
@@ -96,9 +104,224 @@ export function parseTeacherInfo(rawTeacher: string): {
 }
 
 /**
+ * Computes the final election selection:
+ * - Top 3 from Estadística (with ties at 3rd place highlighted)
+ * - Top 3 from Informática (with ties at 3rd place highlighted)
+ * - Next 6 candidates overall by votes among the remaining pool
+ * - If there is a tie for the 6th overall spot (which defines entry into the 9 spots),
+ *   all candidates tied at that exact vote count are marked with a distinct status.
+ */
+export function computeFinalElection(
+  statRanking: TeacherVote[],
+  infRanking: TeacherVote[]
+): FinalElectionResult {
+  // 1. Identify Top 3 of Estadística (handling any tie at 3rd spot)
+  const statSorted = [...statRanking];
+  const infSorted = [...infRanking];
+
+  const top3StatCandidates: FinalCandidate[] = [];
+  const top3StatKeys = new Set<string>();
+
+  if (statSorted.length > 0) {
+    // Determine cutoff votes for top 3 in Estadística
+    const statCutoffIndex = Math.min(2, statSorted.length - 1);
+    const statThirdVotes = statSorted[statCutoffIndex].votes;
+
+    // Check if there is a tie on the 3rd spot border
+    const candidatesAtOrAbove = statSorted.filter(t => t.votes >= statThirdVotes);
+    const isTieAtStat3rd = candidatesAtOrAbove.length > 3 && statSorted[2].votes === statSorted[3]?.votes;
+
+    statSorted.forEach((t, idx) => {
+      if (t.votes > statThirdVotes || (t.votes === statThirdVotes && !isTieAtStat3rd && idx < 3)) {
+        top3StatCandidates.push({
+          ...t,
+          department: 'Estadística',
+          status: 'top3_direct',
+          statusReason: `Top 3 directo de Estadística (#${idx + 1})`,
+        });
+        top3StatKeys.add(t.name.toLowerCase());
+      } else if (t.votes === statThirdVotes && isTieAtStat3rd) {
+        top3StatCandidates.push({
+          ...t,
+          department: 'Estadística',
+          status: 'tied_cutoff',
+          statusReason: `Empatado en corte del Top 3 de Estadística (${t.votes} votos)`,
+        });
+        top3StatKeys.add(t.name.toLowerCase());
+      }
+    });
+  }
+
+  // 2. Identify Top 3 of Informática (handling any tie at 3rd spot)
+  const top3InfCandidates: FinalCandidate[] = [];
+  const top3InfKeys = new Set<string>();
+
+  if (infSorted.length > 0) {
+    const infCutoffIndex = Math.min(2, infSorted.length - 1);
+    const infThirdVotes = infSorted[infCutoffIndex].votes;
+    const candidatesAtOrAbove = infSorted.filter(t => t.votes >= infThirdVotes);
+    const isTieAtInf3rd = candidatesAtOrAbove.length > 3 && infSorted[2].votes === infSorted[3]?.votes;
+
+    infSorted.forEach((t, idx) => {
+      if (t.votes > infThirdVotes || (t.votes === infThirdVotes && !isTieAtInf3rd && idx < 3)) {
+        top3InfCandidates.push({
+          ...t,
+          department: 'Informática',
+          status: 'top3_direct',
+          statusReason: `Top 3 directo de Informática (#${idx + 1})`,
+        });
+        top3InfKeys.add(t.name.toLowerCase());
+      } else if (t.votes === infThirdVotes && isTieAtInf3rd) {
+        top3InfCandidates.push({
+          ...t,
+          department: 'Informática',
+          status: 'tied_cutoff',
+          statusReason: `Empatado en corte del Top 3 de Informática (${t.votes} votos)`,
+        });
+        top3InfKeys.add(t.name.toLowerCase());
+      }
+    });
+  }
+
+  // 3. Form remaining pool of candidates for the next 3 overall spots (total 9 slots: 3 + 3 + 3)
+  const remainingPool: { teacher: TeacherVote; department: 'Estadística' | 'Informática' }[] = [];
+
+  statSorted.forEach(t => {
+    if (!top3StatKeys.has(t.name.toLowerCase())) {
+      remainingPool.push({ teacher: t, department: 'Estadística' });
+    }
+  });
+
+  infSorted.forEach(t => {
+    if (!top3InfKeys.has(t.name.toLowerCase())) {
+      remainingPool.push({ teacher: t, department: 'Informática' });
+    }
+  });
+
+  // Sort remaining pool strictly descending by votes, then alphabetically
+  remainingPool.sort((a, b) => b.teacher.votes - a.teacher.votes || a.teacher.name.localeCompare(b.teacher.name));
+
+  const selectedOverall: FinalCandidate[] = [];
+  const tiedCandidates: FinalCandidate[] = [];
+  const notSelectedCandidates: FinalCandidate[] = [];
+
+  let cutoffVotes: number | null = null;
+  let hasTieAtCutoff = false;
+
+  const targetNextSlots = 3; // 3 additional spots to reach 9 total
+
+  if (remainingPool.length <= targetNextSlots) {
+    // Everyone in remaining pool gets selected (no cutoff needed)
+    remainingPool.forEach((item, idx) => {
+      selectedOverall.push({
+        ...item.teacher,
+        department: item.department,
+        status: 'top3_overall',
+        statusReason: `Entre los 3 mejores globales (#${idx + 1})`,
+      });
+    });
+  } else {
+    // There are more candidates than 3 slots. Look at candidate in 3rd slot (index 2)
+    cutoffVotes = remainingPool[targetNextSlots - 1].teacher.votes;
+    const candidatesWithCutoffVotes = remainingPool.filter(item => item.teacher.votes === cutoffVotes);
+    const candidatesStrictlyAbove = remainingPool.filter(item => item.teacher.votes > (cutoffVotes || 0));
+
+    if (candidatesStrictlyAbove.length + candidatesWithCutoffVotes.length > targetNextSlots && candidatesStrictlyAbove.length < targetNextSlots) {
+      // There is an exact tie spanning the 3rd spot boundary!
+      hasTieAtCutoff = true;
+
+      // Add strictly above candidates as fully selected
+      candidatesStrictlyAbove.forEach((item, idx) => {
+        selectedOverall.push({
+          ...item.teacher,
+          department: item.department,
+          status: 'top3_overall',
+          statusReason: `Entre los 3 mejores globales (#${idx + 1})`,
+        });
+      });
+
+      // Mark ALL candidates with cutoffVotes as tied_cutoff
+      candidatesWithCutoffVotes.forEach(item => {
+        const cand: FinalCandidate = {
+          ...item.teacher,
+          department: item.department,
+          status: 'tied_cutoff',
+          statusReason: `Empate en el corte de las 9 plazas (${cutoffVotes} votos)`,
+        };
+        tiedCandidates.push(cand);
+      });
+
+      // Mark the rest as not_selected
+      remainingPool
+        .filter(item => item.teacher.votes < (cutoffVotes || 0))
+        .forEach(item => {
+          notSelectedCandidates.push({
+            ...item.teacher,
+            department: item.department,
+            status: 'not_selected',
+            statusReason: `Fuera del corte (${item.teacher.votes} votos)`,
+          });
+        });
+    } else {
+      // Clean cutoff without tie crossing the 3rd boundary
+      remainingPool.forEach((item, idx) => {
+        if (idx < targetNextSlots) {
+          selectedOverall.push({
+            ...item.teacher,
+            department: item.department,
+            status: 'top3_overall',
+            statusReason: `Entre los 3 mejores globales (#${idx + 1})`,
+          });
+        } else {
+          notSelectedCandidates.push({
+            ...item.teacher,
+            department: item.department,
+            status: 'not_selected',
+            statusReason: `Fuera del corte (${item.teacher.votes} votos)`,
+          });
+        }
+      });
+    }
+  }
+
+  // Combine list in ranked order
+  const allCandidates: FinalCandidate[] = [
+    ...top3StatCandidates,
+    ...top3InfCandidates,
+    ...selectedOverall,
+    ...tiedCandidates,
+    ...notSelectedCandidates,
+  ];
+
+  return {
+    top3Estadistica: top3StatCandidates,
+    top3Informatica: top3InfCandidates,
+    selectedOverall,
+    tiedCandidates,
+    notSelectedCandidates,
+    allCandidates,
+    cutoffVotes,
+    totalSelectedCount: top3StatCandidates.length + top3InfCandidates.length + selectedOverall.length,
+    hasTieAtCutoff,
+  };
+}
+
+/**
  * Process CSV rows and return Dashboard stats and rankings
  */
 export function processVotesData(rows: string[][]): DashboardStats {
+  const emptyElection: FinalElectionResult = {
+    top3Estadistica: [],
+    top3Informatica: [],
+    selectedOverall: [],
+    tiedCandidates: [],
+    notSelectedCandidates: [],
+    allCandidates: [],
+    cutoffVotes: null,
+    totalSelectedCount: 0,
+    hasTieAtCutoff: false,
+  };
+
   if (!rows || rows.length <= 1) {
     return {
       totalStudents: 0,
@@ -107,11 +330,12 @@ export function processVotesData(rows: string[][]): DashboardStats {
       estadisticaRanking: [],
       informaticaRanking: [],
       voters: [],
+      finalElection: emptyElection,
     };
   }
 
   const header = rows[0].map(h => (h || '').toLowerCase().trim());
-  
+
   let colTimestamp = 0;
   let colName = 1;
   let colEstadistica = 2;
@@ -164,7 +388,6 @@ export function processVotesData(rows: string[][]): DashboardStats {
       informaticaTeachers: infTeachers,
     });
 
-    // Count estadistica
     statTeachers.forEach(tStr => {
       const parsed = parseTeacherInfo(tStr);
       if (!parsed.cleanKey) return;
@@ -186,7 +409,6 @@ export function processVotesData(rows: string[][]): DashboardStats {
       }
     });
 
-    // Count informatica
     infTeachers.forEach(tStr => {
       const parsed = parseTeacherInfo(tStr);
       if (!parsed.cleanKey) return;
@@ -224,12 +446,18 @@ export function processVotesData(rows: string[][]): DashboardStats {
       .sort((a, b) => b.votes - a.votes || a.name.localeCompare(b.name));
   };
 
+  const estadisticaRanking = toRankingList(estadisticaCounts);
+  const informaticaRanking = toRankingList(informaticaCounts);
+
+  const finalElection = computeFinalElection(estadisticaRanking, informaticaRanking);
+
   return {
     totalStudents,
     totalVotesCast,
     lastVoteTimestamp: latestTimestamp || 'N/A',
-    estadisticaRanking: toRankingList(estadisticaCounts),
-    informaticaRanking: toRankingList(informaticaCounts),
+    estadisticaRanking,
+    informaticaRanking,
     voters,
+    finalElection,
   };
 }

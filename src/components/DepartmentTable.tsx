@@ -38,7 +38,7 @@ export const DepartmentTable: React.FC<DepartmentTableProps> = ({ data, topCutof
               return (
                 <tr
                   key={teacher.name + index}
-                  className={`transition hover:bg-slate-50/80 dark:hover:bg-slate-750/50 ${
+                  className={`transition hover:bg-slate-50/80 dark:hover:bg-slate-700/50 ${
                     isSelected
                       ? 'bg-indigo-50/20 dark:bg-indigo-950/20 font-medium'
                       : ''

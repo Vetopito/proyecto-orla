@@ -21,12 +21,12 @@ export const Podium: React.FC<PodiumProps> = ({ topTeachers, departmentName }) =
   const third = topTeachers[2];
 
   return (
-    <div className="bg-gradient-to-b from-indigo-50/50 to-white dark:from-slate-800/60 dark:to-slate-850 p-6 rounded-2xl border border-indigo-100 dark:border-slate-700/60 shadow-xs mb-8">
+    <div className="bg-gradient-to-b from-indigo-50/50 to-white dark:from-slate-800/60 dark:to-slate-800 p-6 rounded-2xl border border-indigo-100 dark:border-slate-700/60 shadow-xs mb-8">
       <div className="text-center mb-6">
         <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-indigo-100 text-indigo-800 dark:bg-indigo-950/80 dark:text-indigo-300">
           <Crown className="w-3.5 h-3.5" /> Podio de Honor
         </span>
-        <h3 className="text-lg font-bold text-slate-850 dark:text-white mt-1">
+        <h3 className="text-lg font-bold text-slate-800 dark:text-white mt-1">
           Top 3 Profesores Más Votados
         </h3>
       </div>

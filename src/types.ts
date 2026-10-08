@@ -7,6 +7,27 @@ export interface TeacherVote {
   rawText: string;
 }
 
+export type SelectionStatus = 'top3_direct' | 'top3_overall' | 'tied_cutoff' | 'not_selected';
+
+export interface FinalCandidate extends TeacherVote {
+  department: 'Estadística' | 'Informática';
+  status: SelectionStatus;
+  statusReason?: string;
+  selectionOrder?: number;
+}
+
+export interface FinalElectionResult {
+  top3Estadistica: FinalCandidate[];
+  top3Informatica: FinalCandidate[];
+  selectedOverall: FinalCandidate[];
+  tiedCandidates: FinalCandidate[];
+  notSelectedCandidates: FinalCandidate[];
+  allCandidates: FinalCandidate[];
+  cutoffVotes: number | null;
+  totalSelectedCount: number;
+  hasTieAtCutoff: boolean;
+}
+
 export interface VoterRecord {
   id: string;
   timestamp: string;
@@ -24,4 +45,5 @@ export interface DashboardStats {
   estadisticaRanking: TeacherVote[];
   informaticaRanking: TeacherVote[];
   voters: VoterRecord[];
+  finalElection: FinalElectionResult;
 }
